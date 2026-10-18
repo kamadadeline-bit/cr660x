@@ -1,0 +1,89 @@
+name: Build Xiaomi CR660X firmware
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - ".github/workflows/build-cr660x.yml"
+      - "files/**"
+      - "config/**"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 360
+    steps:
+      - name: Checkout build configuration
+        uses: actions/checkout@v4
+
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc
+          df -h
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ack antlr3 asciidoc autoconf automake autopoint             binutils bison build-essential bzip2 ccache clang cmake cpio curl             device-tree-compiler flex gawk gcc-multilib g++-multilib gettext             genisoimage git gperf haveged help2man intltool libelf-dev             libfuse-dev libglib2.0-dev libgmp3-dev libltdl-dev libmpc-dev             libmpfr-dev libncurses-dev libpython3-dev libreadline-dev libssl-dev             libtool llvm lrzsz libnsl-dev ninja-build p7zip-full patch pkgconf             python3 python3-pyelftools python3-setuptools qemu-utils rsync scons             squashfs-tools subversion swig texinfo uglifyjs upx-ucl unzip vim             wget xmlto xxd xz-utils zlib1g-dev
+
+      - name: Get LEDE source
+        run: |
+          git clone --depth 1 https://github.com/coolsnowwolf/lede.git lede
+          cp -a files/. lede/files/ 2>/dev/null || true
+          git clone --depth 1 https://github.com/SunBK201/UA3F.git lede/package/UA3F
+          git clone --depth 1 https://github.com/vernesong/OpenClash.git lede/package/luci-app-openclash
+
+      - name: Update feeds
+        working-directory: lede
+        run: |
+          ./scripts/feeds update -a
+          ./scripts/feeds install -a
+
+      - name: Configure CR660X
+        working-directory: lede
+        run: |
+          cat > .config <<'EOF'
+          CONFIG_TARGET_ramips=y
+          CONFIG_TARGET_ramips_mt7621=y
+          CONFIG_TARGET_ramips_mt7621_DEVICE_xiaomi_mi-router-cr660x=y
+          CONFIG_PACKAGE_luci=y
+          CONFIG_PACKAGE_luci-base=y
+          CONFIG_PACKAGE_luci-compat=y
+          CONFIG_PACKAGE_luci-app-openclash=y
+          CONFIG_PACKAGE_ua3f=y
+          CONFIG_PACKAGE_bash=y
+          CONFIG_PACKAGE_curl=y
+          CONFIG_PACKAGE_ca-bundle=y
+          CONFIG_PACKAGE_dnsmasq-full=y
+          CONFIG_PACKAGE_ipset=y
+          CONFIG_PACKAGE_ip-full=y
+          CONFIG_PACKAGE_ruby=y
+          CONFIG_PACKAGE_ruby-yaml=y
+          CONFIG_PACKAGE_unzip=y
+          CONFIG_PACKAGE_kmod-tun=y
+          CONFIG_PACKAGE_kmod-inet-diag=y
+          CONFIG_PACKAGE_kmod-nft-tproxy=y
+          EOF
+          make defconfig
+          grep -E 'CONFIG_TARGET_ramips_mt7621_DEVICE_xiaomi_mi-router-cr660x=y|CONFIG_PACKAGE_(luci-app-openclash|ua3f)=y' .config
+
+      - name: Download sources
+        working-directory: lede
+        run: make download -j8
+
+      - name: Build firmware
+        working-directory: lede
+        run: make V=s -j2
+
+      - name: Upload firmware and build metadata
+        uses: actions/upload-artifact@v4
+        with:
+          name: cr660x-firmware
+          path: |
+            lede/bin/targets/ramips/mt7621/
+            lede/.config
+          if-no-files-found: error
+          retention-days: 14
