@@ -49,7 +49,7 @@ jobs:
           from pathlib import Path
           p = Path("lede/target/linux/ramips/image/mt7621.mk")
           s = p.read_text()
-          needle = "TARGET_DEVICES += xiaomi_mi-router-cr660x\\n"
+          needle = "TARGET_DEVICES += xiaomi_mi-router-cr660x" + chr(10)
           if s.count(needle) != 1:
               raise SystemExit("Expected one CR660x profile declaration; refusing to patch an unknown layout")
           addition = """
