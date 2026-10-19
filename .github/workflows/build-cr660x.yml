@@ -1,4 +1,4 @@
-name: Build Xiaomi CR660X firmware
+name: Build Xiaomi CR6608 firmware
 
 on:
   workflow_dispatch:
@@ -38,20 +38,21 @@ jobs:
             squashfs-tools subversion swig texinfo uglifyjs upx-ucl unzip vim \
             wget xmlto xxd xz-utils zlib1g-dev
 
-      - name: Get LEDE source and correctly place external packages
+      - name: Get LEDE source and prepare CR6608 profile
         run: |
           git clone --depth 1 https://github.com/coolsnowwolf/lede.git lede
 
-          # Add a CR6608-specific profile using the shared CR660x partition/image recipe.
+          # CR6608-specific device identity; use the shared CR660x image recipe.
           cp lede/target/linux/ramips/dts/mt7621_xiaomi_mi-router-cr660x.dts lede/target/linux/ramips/dts/mt7621_xiaomi_mi-router-cr6608.dts
           sed -i 's/xiaomi,mi-router-cr660x/xiaomi,mi-router-cr6608/; s/Xiaomi Mi Router CR660x/Xiaomi Mi Router CR6608/' lede/target/linux/ramips/dts/mt7621_xiaomi_mi-router-cr6608.dts
+
           python3 - <<'PY'
           from pathlib import Path
           p = Path("lede/target/linux/ramips/image/mt7621.mk")
           s = p.read_text()
           needle = "TARGET_DEVICES += xiaomi_mi-router-cr660x" + chr(10)
           if s.count(needle) != 1:
-              raise SystemExit("Expected one CR660x profile declaration; refusing to patch an unknown layout")
+              raise SystemExit("Expected exactly one CR660x profile declaration; refusing to patch an unknown layout")
           addition = """
           define Device/xiaomi_mi-router-cr6608
             $(Device/xiaomi_mi-router-cr660x)
@@ -64,11 +65,29 @@ jobs:
           p.write_text(s.replace(needle, needle + addition, 1))
           PY
 
-          # UA3F's OpenWrt Makefile is under openwrt/ and expects go.mod/main.go
-          # in the parent repository. Keep the complete source tree at package/UA3F.
+          # The upstream UA3F source tree stores its OpenWrt package Makefile
+          # under openwrt/. Flatten only those packaging files into a package
+          # root so the LEDE build system can discover the package Makefile.
           git clone --depth 1 https://github.com/SunBK201/UA3F.git lede/package/UA3F
           test -f lede/package/UA3F/go.mod
           test -f lede/package/UA3F/openwrt/Makefile
+          cp -a lede/package/UA3F/openwrt/. lede/package/UA3F/
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path("lede/package/UA3F/Makefile")
+          s = p.read_text()
+          for old, new in [
+              ("../go.mod", "go.mod"),
+              ("../go.sum", "go.sum"),
+              ("../main.go", "main.go"),
+              ("../cmd", "cmd"),
+              ("../internal", "internal"),
+          ]:
+              s = s.replace(old, new)
+          p.write_text(s)
+          PY
+          test -f lede/package/UA3F/Makefile
+          test -f lede/package/UA3F/files/ua3f.conf
 
           # OpenClash's package Makefile is in its luci-app-openclash subdirectory.
           git clone --depth 1 https://github.com/vernesong/OpenClash.git /tmp/OpenClash
@@ -85,7 +104,7 @@ jobs:
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
-      - name: Configure CR660X
+      - name: Configure CR6608 and requested packages
         working-directory: lede
         run: |
           cat > .config <<'EOF'
@@ -124,6 +143,9 @@ jobs:
           make defconfig
 
           grep -q '^CONFIG_TARGET_ramips_mt7621_DEVICE_xiaomi_mi-router-cr6608=y$' .config
+          grep -q 'compatible = "xiaomi,mi-router-cr6608"' target/linux/ramips/dts/mt7621_xiaomi_mi-router-cr6608.dts
+          grep -q 'define Device/xiaomi_mi-router-cr6608' target/linux/ramips/image/mt7621.mk
+
           for p in ua3f luci-app-openclash luci-app-turboacc kmod-nft-queue kmod-nft-tproxy kmod-sched-bpf libubox-lua firewall4 nftables-json; do
             grep -q "^CONFIG_PACKAGE_${p}=y$" .config || {
               echo "ERROR: requested package ${p} was not selected after make defconfig"
@@ -131,8 +153,8 @@ jobs:
             }
           done
 
-          echo "Confirmed selected packages:"
-          grep -E '^CONFIG_PACKAGE_(ua3f|luci-app-openclash|luci-app-turboacc|kmod-nft-queue|kmod-nft-tproxy|kmod-sched-bpf|libubox-lua|firewall4|nftables-json)=y$' .config
+          echo "Confirmed selected target and packages:"
+          grep -E '^CONFIG_TARGET_ramips_mt7621_DEVICE_xiaomi_mi-router-cr6608=y$|^CONFIG_PACKAGE_(ua3f|luci-app-openclash|luci-app-turboacc|kmod-nft-queue|kmod-nft-tproxy|kmod-sched-bpf|libubox-lua|firewall4|nftables-json)=y$' .config
 
       - name: Download sources
         working-directory: lede
@@ -142,7 +164,7 @@ jobs:
         working-directory: lede
         run: make V=s -j2
 
-      - name: Verify package artifacts and defaults
+      - name: Verify package artifacts and configured defaults
         working-directory: lede
         run: |
           grep -Fq "option server_mode 'TPROXY'" files/etc/config/ua3f
@@ -173,181 +195,7 @@ jobs:
       - name: Upload firmware and build metadata
         uses: actions/upload-artifact@v4
         with:
-          name: cr660x-firmware
-          path: |
-            lede/bin/targets/ramips/mt7621/
-            lede/.config
-            lede/files/etc/config/ua3f
-            lede/files/etc/config/turboacc
-          if-no-files-found: error
-          retention-days: 14
- .config
-          for p in ua3f luci-app-openclash luci-app-turboacc kmod-nft-queue kmod-nft-tproxy kmod-sched-bpf libubox-lua firewall4 nftables-json; do
-            grep -q "^CONFIG_PACKAGE_${p}=y$" .config || {
-              echo "ERROR: requested package ${p} was not selected after make defconfig"
-              exit 1
-            }
-          done
-
-          echo "Confirmed selected packages:"
-          grep -E '^CONFIG_PACKAGE_(ua3f|luci-app-openclash|luci-app-turboacc|kmod-nft-queue|kmod-nft-tproxy|kmod-sched-bpf|libubox-lua|firewall4|nftables-json)=y$' .config
-
-      - name: Download sources
-        working-directory: lede
-        run: make download -j8
-
-      - name: Build firmware
-        working-directory: lede
-        run: make V=s -j2
-
-      - name: Verify package artifacts and defaults
-        working-directory: lede
-        run: |
-          grep -Fq "option server_mode 'TPROXY'" files/etc/config/ua3f
-          grep -Fq "option port '1080'" files/etc/config/ua3f
-          grep -Fq "option rewrite_mode 'GLOBAL'" files/etc/config/ua3f
-          grep -Fq "option ua 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.5845.97 Safari/537.36 Core/1.116.569.400 QQBrowser/19.7.6765.400'" files/etc/config/ua3f
-          grep -Fq "option l3_rewrite_ttl '1'" files/etc/config/ua3f
-          grep -Fq "option l3_rewrite_ttl_value '64'" files/etc/config/ua3f
-          grep -Fq "option l3_rewrite_tcpts '1'" files/etc/config/ua3f
-          grep -Fq "option l3_rewrite_bpf_offload '0'" files/etc/config/ua3f
-          grep -Fq "option sw_flow '0'" files/etc/config/turboacc
-          grep -Fq "option hw_flow '0'" files/etc/config/turboacc
-          grep -Fq "option sfe_flow '0'" files/etc/config/turboacc
-          grep -Fq "option fullcone_nat '0'" files/etc/config/turboacc
-          grep -Fq "option bbr_cca '0'" files/etc/config/turboacc
-
-          for p in ua3f luci-app-openclash luci-app-turboacc kmod-nft-queue kmod-nft-tproxy kmod-sched-bpf libubox-lua; do
-            artifact="$(find bin -type f \( -name "${p}_*.ipk" -o -name "${p}_*.apk" \) -print -quit)"
-            if [ -z "$artifact" ]; then
-              echo "ERROR: build output missing package artifact for ${p}"
-              exit 1
-            fi
-            echo "${p}: ${artifact}"
-          done
-
-          find bin/targets/ramips/mt7621 -maxdepth 1 -type f -print
-
-      - name: Upload firmware and build metadata
-        uses: actions/upload-artifact@v4
-        with:
-          name: cr660x-firmware
-          path: |
-            lede/bin/targets/ramips/mt7621/
-            lede/.config
-            lede/files/etc/config/ua3f
-            lede/files/etc/config/turboacc
-          if-no-files-found: error
-          retention-days: 14
- .config
-          for p in ua3f luci-app-openclash luci-app-turboacc kmod-nft-queue kmod-nft-tproxy kmod-sched-bpf libubox-lua firewall4 nftables-json; do
-            grep -q "^CONFIG_PACKAGE_${p}=y$" .config || {
-              echo "ERROR: requested package ${p} was not selected after make defconfig"
-              exit 1
-            }
-          done
-
-          echo "Confirmed selected packages:"
-          grep -E '^CONFIG_PACKAGE_(ua3f|luci-app-openclash|luci-app-turboacc|kmod-nft-queue|kmod-nft-tproxy|kmod-sched-bpf|libubox-lua|firewall4|nftables-json)=y$' .config
-
-      - name: Download sources
-        working-directory: lede
-        run: make download -j8
-
-      - name: Build firmware
-        working-directory: lede
-        run: make V=s -j2
-
-      - name: Verify package artifacts and defaults
-        working-directory: lede
-        run: |
-          grep -Fq "option server_mode 'TPROXY'" files/etc/config/ua3f
-          grep -Fq "option port '1080'" files/etc/config/ua3f
-          grep -Fq "option rewrite_mode 'GLOBAL'" files/etc/config/ua3f
-          grep -Fq "option ua 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.5845.97 Safari/537.36 Core/1.116.569.400 QQBrowser/19.7.6765.400'" files/etc/config/ua3f
-          grep -Fq "option l3_rewrite_ttl '1'" files/etc/config/ua3f
-          grep -Fq "option l3_rewrite_ttl_value '64'" files/etc/config/ua3f
-          grep -Fq "option l3_rewrite_tcpts '1'" files/etc/config/ua3f
-          grep -Fq "option l3_rewrite_bpf_offload '0'" files/etc/config/ua3f
-          grep -Fq "option sw_flow '0'" files/etc/config/turboacc
-          grep -Fq "option hw_flow '0'" files/etc/config/turboacc
-          grep -Fq "option sfe_flow '0'" files/etc/config/turboacc
-          grep -Fq "option fullcone_nat '0'" files/etc/config/turboacc
-          grep -Fq "option bbr_cca '0'" files/etc/config/turboacc
-
-          for p in ua3f luci-app-openclash luci-app-turboacc kmod-nft-queue kmod-nft-tproxy kmod-sched-bpf libubox-lua; do
-            artifact="$(find bin -type f \( -name "${p}_*.ipk" -o -name "${p}_*.apk" \) -print -quit)"
-            if [ -z "$artifact" ]; then
-              echo "ERROR: build output missing package artifact for ${p}"
-              exit 1
-            fi
-            echo "${p}: ${artifact}"
-          done
-
-          find bin/targets/ramips/mt7621 -maxdepth 1 -type f -print
-
-      - name: Upload firmware and build metadata
-        uses: actions/upload-artifact@v4
-        with:
-          name: cr660x-firmware
-          path: |
-            lede/bin/targets/ramips/mt7621/
-            lede/.config
-            lede/files/etc/config/ua3f
-            lede/files/etc/config/turboacc
-          if-no-files-found: error
-          retention-days: 14
- .config
-          for p in ua3f luci-app-openclash luci-app-turboacc kmod-nft-queue kmod-nft-tproxy kmod-sched-bpf libubox-lua firewall4 nftables-json; do
-            grep -q "^CONFIG_PACKAGE_${p}=y$" .config || {
-              echo "ERROR: requested package ${p} was not selected after make defconfig"
-              exit 1
-            }
-          done
-
-          echo "Confirmed selected packages:"
-          grep -E '^CONFIG_PACKAGE_(ua3f|luci-app-openclash|luci-app-turboacc|kmod-nft-queue|kmod-nft-tproxy|kmod-sched-bpf|libubox-lua|firewall4|nftables-json)=y$' .config
-
-      - name: Download sources
-        working-directory: lede
-        run: make download -j8
-
-      - name: Build firmware
-        working-directory: lede
-        run: make V=s -j2
-
-      - name: Verify package artifacts and defaults
-        working-directory: lede
-        run: |
-          grep -Fq "option server_mode 'TPROXY'" files/etc/config/ua3f
-          grep -Fq "option port '1080'" files/etc/config/ua3f
-          grep -Fq "option rewrite_mode 'GLOBAL'" files/etc/config/ua3f
-          grep -Fq "option ua 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.5845.97 Safari/537.36 Core/1.116.569.400 QQBrowser/19.7.6765.400'" files/etc/config/ua3f
-          grep -Fq "option l3_rewrite_ttl '1'" files/etc/config/ua3f
-          grep -Fq "option l3_rewrite_ttl_value '64'" files/etc/config/ua3f
-          grep -Fq "option l3_rewrite_tcpts '1'" files/etc/config/ua3f
-          grep -Fq "option l3_rewrite_bpf_offload '0'" files/etc/config/ua3f
-          grep -Fq "option sw_flow '0'" files/etc/config/turboacc
-          grep -Fq "option hw_flow '0'" files/etc/config/turboacc
-          grep -Fq "option sfe_flow '0'" files/etc/config/turboacc
-          grep -Fq "option fullcone_nat '0'" files/etc/config/turboacc
-          grep -Fq "option bbr_cca '0'" files/etc/config/turboacc
-
-          for p in ua3f luci-app-openclash luci-app-turboacc kmod-nft-queue kmod-nft-tproxy kmod-sched-bpf libubox-lua; do
-            artifact="$(find bin -type f \( -name "${p}_*.ipk" -o -name "${p}_*.apk" \) -print -quit)"
-            if [ -z "$artifact" ]; then
-              echo "ERROR: build output missing package artifact for ${p}"
-              exit 1
-            fi
-            echo "${p}: ${artifact}"
-          done
-
-          find bin/targets/ramips/mt7621 -maxdepth 1 -type f -print
-
-      - name: Upload firmware and build metadata
-        uses: actions/upload-artifact@v4
-        with:
-          name: cr660x-firmware
+          name: cr6608-firmware
           path: |
             lede/bin/targets/ramips/mt7621/
             lede/.config

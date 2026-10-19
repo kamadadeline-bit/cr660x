@@ -1,17 +1,19 @@
-# Xiaomi CR660X LEDE firmware
+# Xiaomi Mi Router CR6608 firmware (LEDE)
 
-This repository builds a CR6608-specific image from [coolsnowwolf/lede](https://github.com/coolsnowwolf/lede). The workflow adds a CR6608 profile and matching device-tree identity while reusing the LEDE CR660x series image/partition recipe. Run **Actions → Build Xiaomi CR660X firmware → Run workflow**; when it finishes, download the `cr660x-firmware` artifact.
+This repository prepares a CR6608-targeted firmware build from [coolsnowwolf/lede](https://github.com/coolsnowwolf/lede).
 
-## Current build configuration
+## Optimization plan and requested defaults
 
-- **UA3F**: enabled by default; TPROXY mode, port 1080, global User-Agent rewrite, using the requested QQ Browser User-Agent.
-- **UA3F L3 rewrite**: fixed TTL enabled at 64 and TCP timestamp deletion enabled. IP ID rewrite, TCP initial window, QUIC blocking, and eBPF offload remain disabled, matching the supplied screenshots.
-- **Turbo ACC**: LuCI page included. Software/hardware flow offload and Shortcut-FE are disabled; FullCone NAT is disabled; BBR selection is off so the system uses CUBIC.
-- **Dependencies**: explicitly select `kmod-nft-queue`, `kmod-nft-tproxy`, `kmod-sched-bpf`, `libubox-lua`, and the nftables userspace package. The workflow fails early if these packages are not selected and checks package artifacts after compiling.
-- **OpenClash**: LuCI package included. Clash/Mihomo core and its runtime configuration are not bundled by this build step.
+1. Add an explicit `xiaomi_mi-router-cr6608` target profile and a CR6608 DTS compatible/model identity, reusing the LEDE CR660x series image/partition recipe. This is a source-level target adjustment; verify the exact unit's partition table and recovery method before flashing.
+2. Include UA3F, OpenClash LuCI, Turbo ACC, and these requested packages: `kmod-nft-queue`, `kmod-nft-tproxy`, `kmod-sched-bpf`, `libubox-lua`. The build verifies selection and the output packages, instead of treating a successful compile step alone as proof.
+3. Set UA3F enabled, TPROXY port 1080, GLOBAL rewrite, the specified QQ Browser User-Agent, TTL rewrite to 64, and TCP timestamp deletion. Keep TCP reordering/injection, fixed IP ID, initial TCP window, QUIC blocking, and eBPF L3 offload disabled as shown in the screenshots.
+4. Set Turbo ACC software/hardware flow offload and Shortcut-FE disabled, FullCone NAT disabled, and BBR disabled so the Turbo ACC init script selects CUBIC.
+5. Review the generated package artifacts and exact CR6608 image name before considering installation.
 
-Campus login plugin `gwifi` is **not included in this revision**: only a placeholder config had been committed previously, not the original login scripts and LuCI pages. That placeholder has been removed to avoid shipping a nonfunctional entry. The original `gwifi_clean.tar.gz` source must be available again before it can be integrated accurately; credentials should remain blank in a public repository.
+## Not included yet
 
-## Flashing caution
+The original `gwifi_clean.tar.gz` campus login plugin is not integrated. Only an incomplete placeholder had been committed earlier, and it has been removed rather than shipping a broken LuCI page. Upload the original archive again before integrating its scripts and web pages. OpenClash LuCI is included, but the Clash/Mihomo core and a user's proxy config are not bundled by the build workflow.
 
-LEDE identifies its profile as `xiaomi_mi-router-cr6608`; this does not by itself prove that every CR6608 hardware revision has the same partition layout. Verify the exact board revision, current bootloader, firmware image type, and recovery method before flashing. Do not flash the image solely because compilation succeeds.
+## Flashing safety
+
+The CR6608 profile reuses the CR660x series image/partition recipe. This does not independently establish that every hardware revision or bootloader accepts a given image. Before flashing, compare the actual router revision and `/proc/mtd` layout, choose the correct factory or sysupgrade format for your current installation path, and confirm a recovery route. Do not flash while the image is still unverified.
