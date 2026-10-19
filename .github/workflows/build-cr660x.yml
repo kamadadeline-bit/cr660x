@@ -10,6 +10,11 @@ on:
 
 permissions:
   contents: read
+  actions: write
+
+concurrency:
+  group: cr6608-lede-build-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build:
@@ -18,6 +23,20 @@ jobs:
     steps:
       - name: Checkout build configuration
         uses: actions/checkout@v4
+
+      - name: Cancel older builds of this workflow
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh run list --repo "$GITHUB_REPOSITORY" --workflow build-cr660x.yml --limit 50 --json databaseId,status \
+            --jq '.[] | select(.status == "in_progress" or .status == "queued") | .databaseId' |
+          while read -r id; do
+            [ -n "$id" ] || continue
+            if [ "$id" != "$GITHUB_RUN_ID" ]; then
+              echo "Canceling stale run $id"
+              gh run cancel "$id" --repo "$GITHUB_REPOSITORY" || true
+            fi
+          done
 
       - name: Free disk space
         run: |
@@ -156,9 +175,14 @@ jobs:
           echo "Confirmed selected target and packages:"
           grep -E '^CONFIG_TARGET_ramips_mt7621_DEVICE_xiaomi_mi-router-cr6608=y$|^CONFIG_PACKAGE_(ua3f|luci-app-openclash|luci-app-turboacc|kmod-nft-queue|kmod-nft-tproxy|kmod-sched-bpf|libubox-lua|firewall4|nftables-json)=y$' .config
 
-      - name: Download sources
+      - name: Download sources with visible progress and a hard timeout
         working-directory: lede
-        run: make download -j8
+        env:
+          GIT_TERMINAL_PROMPT: "0"
+        run: |
+          echo "Starting source download. Verbose output identifies slow or failing packages."
+          timeout --signal=TERM --kill-after=30s 45m make download -j8 V=s
+          echo "Source download finished."
 
       - name: Build firmware
         working-directory: lede
