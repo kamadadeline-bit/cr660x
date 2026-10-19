@@ -123,7 +123,8 @@ jobs:
 
           make defconfig
 
-          grep -q '^CONFIG_TARGET_ramips_mt7621_DEVICE_xiaomi_mi-router-cr6608=y          for p in ua3f luci-app-openclash luci-app-turboacc kmod-nft-queue kmod-nft-tproxy kmod-sched-bpf libubox-lua firewall4 nftables-json; do
+          grep -q '^CONFIG_TARGET_ramips_mt7621_DEVICE_xiaomi_mi-router-cr6608=y$' .config
+          for p in ua3f luci-app-openclash luci-app-turboacc kmod-nft-queue kmod-nft-tproxy kmod-sched-bpf libubox-lua firewall4 nftables-json; do
             grep -q "^CONFIG_PACKAGE_${p}=y$" .config || {
               echo "ERROR: requested package ${p} was not selected after make defconfig"
               exit 1
