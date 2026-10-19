@@ -43,10 +43,9 @@ jobs:
         run: |
           git clone --depth 1 https://github.com/coolsnowwolf/lede.git lede
 
-          git clone --depth 1 https://github.com/SunBK201/UA3F.git /tmp/UA3F
-          test -f /tmp/UA3F/openwrt/Makefile
-          mkdir -p lede/package/UA3F
-          cp -a /tmp/UA3F/openwrt/. lede/package/UA3F/
+          git clone --depth 1 https://github.com/SunBK201/UA3F.git lede/package/UA3F
+          test -f lede/package/UA3F/go.mod
+          test -f lede/package/UA3F/openwrt/Makefile
 
           git clone --depth 1 https://github.com/vernesong/OpenClash.git /tmp/OpenClash
           test -f /tmp/OpenClash/luci-app-openclash/Makefile
@@ -56,7 +55,8 @@ jobs:
           mkdir -p lede/files
           if [ -d files ]; then cp -a files/. lede/files/; fi
 
-          test -f lede/package/UA3F/Makefile
+          test -f lede/package/UA3F/go.mod
+          test -f lede/package/UA3F/openwrt/Makefile
           test -f lede/package/luci-app-openclash/Makefile
 
       - name: Update feeds
