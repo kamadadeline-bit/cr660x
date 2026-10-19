@@ -1,6 +1,6 @@
 # Xiaomi CR660X LEDE firmware
 
-This repository builds the Xiaomi CR660X-family image from [coolsnowwolf/lede](https://github.com/coolsnowwolf/lede). Run **Actions → Build Xiaomi CR660X firmware → Run workflow**; when it finishes, download the `cr660x-firmware` artifact.
+This repository builds a CR6608-specific image from [coolsnowwolf/lede](https://github.com/coolsnowwolf/lede). The workflow adds a CR6608 profile and matching device-tree identity while reusing the LEDE CR660x series image/partition recipe. Run **Actions → Build Xiaomi CR660X firmware → Run workflow**; when it finishes, download the `cr660x-firmware` artifact.
 
 ## Current build configuration
 
@@ -14,4 +14,4 @@ Campus login plugin `gwifi` is **not included in this revision**: only a placeho
 
 ## Flashing caution
 
-LEDE identifies its profile as `xiaomi_mi-router-cr660x`; this does not by itself prove that every CR6608 hardware revision has the same partition layout. Verify the exact board revision, current bootloader, firmware image type, and recovery method before flashing. Do not flash the image solely because compilation succeeds.
+LEDE identifies its profile as `xiaomi_mi-router-cr6608`; this does not by itself prove that every CR6608 hardware revision has the same partition layout. Verify the exact board revision, current bootloader, firmware image type, and recovery method before flashing. Do not flash the image solely because compilation succeeds.
