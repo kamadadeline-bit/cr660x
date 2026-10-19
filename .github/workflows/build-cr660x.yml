@@ -123,7 +123,122 @@ jobs:
 
           make defconfig
 
-          grep -q '^CONFIG_TARGET_ramips_mt7621_DEVICE_xiaomi_mi-router-cr6608=y
+          grep -q '^CONFIG_TARGET_ramips_mt7621_DEVICE_xiaomi_mi-router-cr6608=y          for p in ua3f luci-app-openclash luci-app-turboacc kmod-nft-queue kmod-nft-tproxy kmod-sched-bpf libubox-lua firewall4 nftables-json; do
+            grep -q "^CONFIG_PACKAGE_${p}=y$" .config || {
+              echo "ERROR: requested package ${p} was not selected after make defconfig"
+              exit 1
+            }
+          done
+
+          echo "Confirmed selected packages:"
+          grep -E '^CONFIG_PACKAGE_(ua3f|luci-app-openclash|luci-app-turboacc|kmod-nft-queue|kmod-nft-tproxy|kmod-sched-bpf|libubox-lua|firewall4|nftables-json)=y$' .config
+
+      - name: Download sources
+        working-directory: lede
+        run: make download -j8
+
+      - name: Build firmware
+        working-directory: lede
+        run: make V=s -j2
+
+      - name: Verify package artifacts and defaults
+        working-directory: lede
+        run: |
+          grep -Fq "option server_mode 'TPROXY'" files/etc/config/ua3f
+          grep -Fq "option port '1080'" files/etc/config/ua3f
+          grep -Fq "option rewrite_mode 'GLOBAL'" files/etc/config/ua3f
+          grep -Fq "option ua 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.5845.97 Safari/537.36 Core/1.116.569.400 QQBrowser/19.7.6765.400'" files/etc/config/ua3f
+          grep -Fq "option l3_rewrite_ttl '1'" files/etc/config/ua3f
+          grep -Fq "option l3_rewrite_ttl_value '64'" files/etc/config/ua3f
+          grep -Fq "option l3_rewrite_tcpts '1'" files/etc/config/ua3f
+          grep -Fq "option l3_rewrite_bpf_offload '0'" files/etc/config/ua3f
+          grep -Fq "option sw_flow '0'" files/etc/config/turboacc
+          grep -Fq "option hw_flow '0'" files/etc/config/turboacc
+          grep -Fq "option sfe_flow '0'" files/etc/config/turboacc
+          grep -Fq "option fullcone_nat '0'" files/etc/config/turboacc
+          grep -Fq "option bbr_cca '0'" files/etc/config/turboacc
+
+          for p in ua3f luci-app-openclash luci-app-turboacc kmod-nft-queue kmod-nft-tproxy kmod-sched-bpf libubox-lua; do
+            artifact="$(find bin -type f \( -name "${p}_*.ipk" -o -name "${p}_*.apk" \) -print -quit)"
+            if [ -z "$artifact" ]; then
+              echo "ERROR: build output missing package artifact for ${p}"
+              exit 1
+            fi
+            echo "${p}: ${artifact}"
+          done
+
+          find bin/targets/ramips/mt7621 -maxdepth 1 -type f -print
+
+      - name: Upload firmware and build metadata
+        uses: actions/upload-artifact@v4
+        with:
+          name: cr660x-firmware
+          path: |
+            lede/bin/targets/ramips/mt7621/
+            lede/.config
+            lede/files/etc/config/ua3f
+            lede/files/etc/config/turboacc
+          if-no-files-found: error
+          retention-days: 14
+ .config
+          for p in ua3f luci-app-openclash luci-app-turboacc kmod-nft-queue kmod-nft-tproxy kmod-sched-bpf libubox-lua firewall4 nftables-json; do
+            grep -q "^CONFIG_PACKAGE_${p}=y$" .config || {
+              echo "ERROR: requested package ${p} was not selected after make defconfig"
+              exit 1
+            }
+          done
+
+          echo "Confirmed selected packages:"
+          grep -E '^CONFIG_PACKAGE_(ua3f|luci-app-openclash|luci-app-turboacc|kmod-nft-queue|kmod-nft-tproxy|kmod-sched-bpf|libubox-lua|firewall4|nftables-json)=y$' .config
+
+      - name: Download sources
+        working-directory: lede
+        run: make download -j8
+
+      - name: Build firmware
+        working-directory: lede
+        run: make V=s -j2
+
+      - name: Verify package artifacts and defaults
+        working-directory: lede
+        run: |
+          grep -Fq "option server_mode 'TPROXY'" files/etc/config/ua3f
+          grep -Fq "option port '1080'" files/etc/config/ua3f
+          grep -Fq "option rewrite_mode 'GLOBAL'" files/etc/config/ua3f
+          grep -Fq "option ua 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.5845.97 Safari/537.36 Core/1.116.569.400 QQBrowser/19.7.6765.400'" files/etc/config/ua3f
+          grep -Fq "option l3_rewrite_ttl '1'" files/etc/config/ua3f
+          grep -Fq "option l3_rewrite_ttl_value '64'" files/etc/config/ua3f
+          grep -Fq "option l3_rewrite_tcpts '1'" files/etc/config/ua3f
+          grep -Fq "option l3_rewrite_bpf_offload '0'" files/etc/config/ua3f
+          grep -Fq "option sw_flow '0'" files/etc/config/turboacc
+          grep -Fq "option hw_flow '0'" files/etc/config/turboacc
+          grep -Fq "option sfe_flow '0'" files/etc/config/turboacc
+          grep -Fq "option fullcone_nat '0'" files/etc/config/turboacc
+          grep -Fq "option bbr_cca '0'" files/etc/config/turboacc
+
+          for p in ua3f luci-app-openclash luci-app-turboacc kmod-nft-queue kmod-nft-tproxy kmod-sched-bpf libubox-lua; do
+            artifact="$(find bin -type f \( -name "${p}_*.ipk" -o -name "${p}_*.apk" \) -print -quit)"
+            if [ -z "$artifact" ]; then
+              echo "ERROR: build output missing package artifact for ${p}"
+              exit 1
+            fi
+            echo "${p}: ${artifact}"
+          done
+
+          find bin/targets/ramips/mt7621 -maxdepth 1 -type f -print
+
+      - name: Upload firmware and build metadata
+        uses: actions/upload-artifact@v4
+        with:
+          name: cr660x-firmware
+          path: |
+            lede/bin/targets/ramips/mt7621/
+            lede/.config
+            lede/files/etc/config/ua3f
+            lede/files/etc/config/turboacc
+          if-no-files-found: error
+          retention-days: 14
+ .config
           for p in ua3f luci-app-openclash luci-app-turboacc kmod-nft-queue kmod-nft-tproxy kmod-sched-bpf libubox-lua firewall4 nftables-json; do
             grep -q "^CONFIG_PACKAGE_${p}=y$" .config || {
               echo "ERROR: requested package ${p} was not selected after make defconfig"
