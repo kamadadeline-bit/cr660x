@@ -133,6 +133,15 @@ jobs:
                       if marker not in s:
                           raise SystemExit(f"Missing PPP hook include marker: {p}")
                       s = s.replace(marker, declarations, 1)
+                  # pppd 2.5.1 no longer provides the old __P prototype macro.
+                  s = s.replace(
+                      "void print_hex __P(( unsigned char *, uint8_t,  printer_func, void *));",
+                      "void print_hex(unsigned char *, uint8_t, printer_func, void *);"
+                  )
+                  s = s.replace(
+                      "void print_hex_to_file __P(( unsigned char *, uint8_t,  printer_func, FILE *));",
+                      "void print_hex_to_file(unsigned char *, uint8_t, printer_func, FILE *);"
+                  )
                   p.write_text(s)
                   patched += 1
                   print(f"Patched PPP 2.5.1 API declarations: {p}")
