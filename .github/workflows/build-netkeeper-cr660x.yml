@@ -109,13 +109,13 @@ jobs:
                   if '#include "pppd/upap.h"' not in s:
                       s = s.replace(
                           '#include "pppd/pppd.h"',
-                          '#include "pppd/pppd.h"\\n#include "pppd/upap.h"\\n#include "pppd/chap.h"',
+                          '#include "pppd/pppd.h"\n#include "pppd/upap.h"\n#include "pppd/chap.h"',
                           1
                       )
                   marker = '#include "pppd/chap.h"'
                   declarations = (
-                      marker + "\\nextern char user[MAXNAMELEN];"
-                      + "\\nextern char passwd[MAXSECRETLEN];"
+                      marker + "\nextern char user[MAXNAMELEN];"
+                      + "\nextern char passwd[MAXSECRETLEN];"
                   )
                   if "extern char user[MAXNAMELEN];" not in s:
                       if marker not in s:
