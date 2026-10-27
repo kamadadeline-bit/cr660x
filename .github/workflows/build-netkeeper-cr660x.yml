@@ -52,7 +52,7 @@ jobs:
 
           # The SDK's staging headers are from its older PPP build. The NetKeeper
           # protocol plugin only needs the pppd headers and exported hooks at build
-          # time; package runtime ABI path must match the current LEDE pppd (2.5.3).
+          # time; package runtime ABI path must match the installed router pppd (2.5.1).
           # Replace the stale Makefile lookup with an explicit path/version.
           python3 - <<'PY'
           from pathlib import Path
@@ -61,38 +61,38 @@ jobs:
           for rel in ("netkeeper/Makefile", "netkeeper-interception/Makefile"):
               p = root / "package/feeds/netkeeper" / rel
               s = p.read_text()
-              updated, count = re.subn(r"^PPPD_VER\s*:=.*$", "PPPD_VER := 2.5.3", s, count=1, flags=re.M)
+              updated, count = re.subn(r"^PPPD_VER\s*:=.*$", "PPPD_VER := 2.5.1", s, count=1, flags=re.M)
               if count != 1:
                   raise SystemExit(f"Could not patch PPP plugin path in {p}")
               p.write_text(updated)
-          print("Configured plugin install path and version check for pppd 2.5.3.")
+          print("Configured plugin install path and version check for pppd 2.5.1.")
           PY
 
           echo "NetKeeper source commit: $(git -C /tmp/feed-netkeeper rev-parse HEAD)"
 
-      - name: Add PPP 2.5.3 headers required by the legacy C plugins
+      - name: Add PPP 2.5.1 headers required by the legacy C plugins
         run: |
           set -eu
-          wget --progress=dot:giga -O /tmp/ppp-2.5.3.tar.gz https://download.samba.org/pub/ppp/ppp-2.5.3.tar.gz
-          echo "ddda28dec8aca99a403ab6070d94ffd2b17d63e9a4c5509158e99e148f572d4f  /tmp/ppp-2.5.3.tar.gz" | sha256sum -c -
-          mkdir -p /tmp/ppp-src
-          tar -xzf /tmp/ppp-2.5.3.tar.gz -C /tmp/ppp-src
-          test -f /tmp/ppp-src/ppp-2.5.3/pppd/pppd.h
-          test -f /tmp/ppp-src/ppp-2.5.3/pppd/pppdconf.h.in
+          # Samba's release server returned 503 during the previous run.
+          # Clone the upstream 2.5.1 tag instead; only headers are staged here.
+          git clone --depth 1 --branch ppp-2.5.1 https://github.com/ppp-project/ppp.git /tmp/ppp-src
+          test -f /tmp/ppp-src/pppd/pppd.h
+          test -f /tmp/ppp-src/pppd/pppdconf.h.in
 
           for p in netkeeper netkeeper-interception; do
             dst="sdk/package/feeds/netkeeper/$p/src/pppd"
             mkdir -p "$dst"
-            cp /tmp/ppp-src/ppp-2.5.3/pppd/*.h "$dst/"
-            cp /tmp/ppp-src/ppp-2.5.3/pppd/pppdconf.h.in "$dst/pppdconf.h"
+            cp /tmp/ppp-src/pppd/*.h "$dst/"
+            cp /tmp/ppp-src/pppd/pppdconf.h.in "$dst/pppdconf.h"
             sed -i \
-              -e 's/^#undef PPPD_VERSION$/#define PPPD_VERSION "2.5.3"/' \
+              -e 's/^#undef PPPD_VERSION$/#define PPPD_VERSION "2.5.1"/' \
               -e 's/^#undef PPP_WITH_PLUGINS$/#define PPP_WITH_PLUGINS 1/' \
               "$dst/pppdconf.h"
             test -f "$dst/pppd.h"
             test -f "$dst/pppdconf.h"
           done
-          echo "Copied version-matched pppd headers into both C plugin source trees."
+          echo "Copied upstream pppd 2.5.1 headers into both C plugin source trees."
+          echo "PPP source commit: $(git -C /tmp/ppp-src rev-parse HEAD)"
 
       - name: Install only required feeds
         working-directory: sdk
@@ -164,8 +164,8 @@ jobs:
              Legacy LuCI management page (requires luci-compat).
 
           Target: ramips/mt7621, mipsel_24kc, musl.
-          PPP plugin ABI/path configured for pppd 2.5.3 to match the current
-          coolsnowwolf/lede CR660X build recipe. Do not force-install if the
+          PPP plugin ABI/path configured for pppd 2.5.1 to match the current
+          CR660X system. Do not force-install on a router with another PPP version. Do not force-install if the
           router reports a different pppd version or incompatible libc.
           The SDK is used only for package builds; no firmware image is built.
 
