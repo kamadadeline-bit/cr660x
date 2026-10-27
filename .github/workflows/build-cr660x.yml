@@ -84,6 +84,30 @@ jobs:
           p.write_text(s.replace(needle, needle + addition, 1))
           PY
 
+          # CR6608 has a distinct compatible string. Without a matching board.d
+          # case, first-boot network generation falls back to lan1..lan4/wan,
+          # while this CR660x DTS uses the swconfig switch ports. Alias both
+          # interface and MAC setup to the known CR660x layout.
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path("lede/target/linux/ramips/mt7621/base-files/etc/board.d/02_network")
+          s = p.read_text()
+          old_if = "xiaomi,mi-router-cr660x)\n\t\tucidef_add_switch"
+          new_if = "xiaomi,mi-router-cr660x|\\\n\txiaomi,mi-router-cr6608)\n\t\tucidef_add_switch"
+          if s.count(old_if) != 1:
+              raise SystemExit("Could not find the CR660x interface setup case")
+          s = s.replace(old_if, new_if, 1)
+          old_mac = "xiaomi,mi-router-cr660x)\n\t\tlan_mac="
+          new_mac = "xiaomi,mi-router-cr660x|\\\n\txiaomi,mi-router-cr6608)\n\t\tlan_mac="
+          if s.count(old_mac) != 1:
+              raise SystemExit("Could not find the CR660x MAC setup case")
+          s = s.replace(old_mac, new_mac, 1)
+          if s.count("xiaomi,mi-router-cr6608") != 2:
+              raise SystemExit("CR6608 board aliases were not added to both network and MAC setup")
+          p.write_text(s)
+          print("CR6608 first-boot LAN switch and MAC setup patched.")
+          PY
+
           # The upstream UA3F source tree stores its OpenWrt package Makefile
           # under openwrt/. Flatten only those packaging files into a package
           # root so the LEDE build system can discover the package Makefile.
@@ -114,6 +138,65 @@ jobs:
           mkdir -p lede/package/luci-app-openclash
           cp -a /tmp/OpenClash/luci-app-openclash/. lede/package/luci-app-openclash/
 
+          # Add the NetKeeper/闪讯 dialer and interception UI as source packages.
+          # These are PPPoE/NetKeeper packages, not an H3C iNode authenticator.
+          git clone --depth 1 https://github.com/YYuan996/netkeeper-interception.git /tmp/netkeeper-interception
+          mkdir -p lede/package/feeds/netkeeper
+          for p in netkeeper luci-proto-netkeeper netkeeper-interception luci-app-netkeeper-interception; do
+            test -f "/tmp/netkeeper-interception/$p/Makefile"
+            cp -a "/tmp/netkeeper-interception/$p" lede/package/feeds/netkeeper/
+          done
+
+          # The upstream Makefiles search for PKG_RELEASE_VERSION, which this
+          # LEDE tree does not define. Match the actual PPPD module ABI directory.
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          root = Path("lede/package/feeds/netkeeper")
+          pppd_line = "PPPD_VER := $(shell sed -n 's/^PKG_VERSION:=//p' $(TOPDIR)/package/network/services/ppp/Makefile | head -n1)"
+          for rel in ("netkeeper/Makefile", "netkeeper-interception/Makefile"):
+              p = root / rel
+              s = p.read_text()
+              updated, count = re.subn(r"^PPPD_VER\s*:=.*$", lambda _: pppd_line, s, count=1, flags=re.M)
+              if count != 1:
+                  raise SystemExit(f"Could not set matching PPP ABI version in {p}")
+              p.write_text(updated)
+          patched = 0
+          for package in ("netkeeper", "netkeeper-interception"):
+              for p in (root / package / "src").glob("*.c"):
+                  s = p.read_text()
+                  if '#include "pppd/pppd.h"' not in s:
+                      continue
+                  if '#include "pppd/upap.h"' not in s:
+                      s = s.replace(
+                          '#include "pppd/pppd.h"',
+                          '#include "pppd/pppd.h"\n#include "pppd/upap.h"\n#include "pppd/chap.h"',
+                          1
+                      )
+                  marker = '#include "pppd/chap.h"'
+                  if "extern char user[MAXNAMELEN];" not in s:
+                      if marker not in s:
+                          raise SystemExit(f"Missing PPP header marker in {p}")
+                      s = s.replace(
+                          marker,
+                          marker + "\nextern char user[MAXNAMELEN];\nextern char passwd[MAXSECRETLEN];",
+                          1
+                      )
+                  s = s.replace(
+                      "void print_hex __P(( unsigned char *, uint8_t,  printer_func, void *));",
+                      "void print_hex(unsigned char *, uint8_t, printer_func, void *);"
+                  )
+                  s = s.replace(
+                      "void print_hex_to_file __P(( unsigned char *, uint8_t,  printer_func, FILE *));",
+                      "void print_hex_to_file(unsigned char *, uint8_t, printer_func, FILE *);"
+                  )
+                  p.write_text(s)
+                  patched += 1
+          if patched < 2:
+              raise SystemExit(f"Expected to patch both legacy PPP plugins, patched {patched}")
+          print(f"NetKeeper ABI and PPP 2.5.x compatibility fixes applied to {patched} C sources.")
+          PY
+
           mkdir -p lede/files
           if [ -d files ]; then cp -a files/. lede/files/; fi
 
@@ -141,6 +224,25 @@ jobs:
           CONFIG_PACKAGE_luci-app-openclash=y
           CONFIG_PACKAGE_luci-app-turboacc=y
 
+          # UA3F 3.x uses iptables TPROXY/NFQUEUE modules; include its real
+          # runtime dependencies alongside the requested nftables/BPF packages.
+          CONFIG_PACKAGE_iptables=y
+          CONFIG_PACKAGE_iptables-mod-tproxy=y
+          CONFIG_PACKAGE_iptables-mod-extra=y
+          CONFIG_PACKAGE_iptables-mod-ipopt=y
+          CONFIG_PACKAGE_iptables-mod-nfqueue=y
+          CONFIG_PACKAGE_iptables-mod-conntrack-extra=y
+          CONFIG_PACKAGE_kmod-nf-conntrack-netlink=y
+
+          # NetKeeper/闪讯 dialer + interception service + LuCI protocol/UI.
+          CONFIG_PACKAGE_ppp=y
+          CONFIG_PACKAGE_ppp-mod-pppoe=y
+          CONFIG_PACKAGE_rp-pppoe-server=y
+          CONFIG_PACKAGE_netkeeper=y
+          CONFIG_PACKAGE_luci-proto-netkeeper=y
+          CONFIG_PACKAGE_netkeeper-interception=y
+          CONFIG_PACKAGE_luci-app-netkeeper-interception=y
+
           CONFIG_PACKAGE_kmod-nft-queue=y
           CONFIG_PACKAGE_kmod-nft-tproxy=y
           CONFIG_PACKAGE_kmod-sched-bpf=y
@@ -164,8 +266,9 @@ jobs:
           grep -q '^CONFIG_TARGET_ramips_mt7621_DEVICE_xiaomi_mi-router-cr6608=y$' .config
           grep -q 'compatible = "xiaomi,mi-router-cr6608"' target/linux/ramips/dts/mt7621_xiaomi_mi-router-cr6608.dts
           grep -q 'define Device/xiaomi_mi-router-cr6608' target/linux/ramips/image/mt7621.mk
+          test "$(grep -c 'xiaomi,mi-router-cr6608' target/linux/ramips/mt7621/base-files/etc/board.d/02_network)" -ge 2
 
-          for p in ua3f luci-app-openclash luci-app-turboacc kmod-nft-queue kmod-nft-tproxy kmod-sched-bpf libubox-lua firewall4 nftables-json; do
+          for p in ua3f luci-app-openclash luci-app-turboacc kmod-nft-queue kmod-nft-tproxy kmod-sched-bpf libubox-lua firewall4 nftables-json netkeeper luci-proto-netkeeper netkeeper-interception luci-app-netkeeper-interception; do
             grep -q "^CONFIG_PACKAGE_${p}=y$" .config || {
               echo "ERROR: requested package ${p} was not selected after make defconfig"
               exit 1
@@ -213,6 +316,21 @@ jobs:
             fi
             echo "${p}: ${artifact}"
           done
+
+          # Verify these packages are in the final image, not only downloadable
+          # artifacts; matching kernel modules must not be pulled from another feed.
+          manifest="$(find bin/targets/ramips/mt7621 -maxdepth 1 -type f -name '*manifest*' -print -quit)"
+          if [ -z "$manifest" ]; then
+            echo "ERROR: target package manifest missing"
+            exit 1
+          fi
+          for p in kmod-nft-queue kmod-nft-tproxy kmod-sched-bpf libubox-lua netkeeper luci-proto-netkeeper netkeeper-interception luci-app-netkeeper-interception; do
+            grep -Eq "^${p}[[:space:]]+-[[:space:]]" "$manifest" || {
+              echo "ERROR: ${p} was not included in the final firmware manifest"
+              exit 1
+            }
+          done
+          echo "Verified UA3F and NetKeeper packages in firmware manifest: $manifest"
 
           find bin/targets/ramips/mt7621 -maxdepth 1 -type f -print
 
