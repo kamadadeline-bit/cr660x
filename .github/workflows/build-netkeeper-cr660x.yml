@@ -70,6 +70,30 @@ jobs:
 
           echo "NetKeeper source commit: $(git -C /tmp/feed-netkeeper rev-parse HEAD)"
 
+      - name: Add PPP 2.5.3 headers required by the legacy C plugins
+        run: |
+          set -eu
+          wget --progress=dot:giga -O /tmp/ppp-2.5.3.tar.gz https://download.samba.org/pub/ppp/ppp-2.5.3.tar.gz
+          echo "ddda28dec8aca99a403ab6070d94ffd2b17d63e9a4c5509158e99e148f572d4f  /tmp/ppp-2.5.3.tar.gz" | sha256sum -c -
+          mkdir -p /tmp/ppp-src
+          tar -xzf /tmp/ppp-2.5.3.tar.gz -C /tmp/ppp-src
+          test -f /tmp/ppp-src/ppp-2.5.3/pppd/pppd.h
+          test -f /tmp/ppp-src/ppp-2.5.3/pppd/pppdconf.h.in
+
+          for p in netkeeper netkeeper-interception; do
+            dst="sdk/package/feeds/netkeeper/$p/src/pppd"
+            mkdir -p "$dst"
+            cp /tmp/ppp-src/ppp-2.5.3/pppd/*.h "$dst/"
+            cp /tmp/ppp-src/ppp-2.5.3/pppd/pppdconf.h.in "$dst/pppdconf.h"
+            sed -i \
+              -e 's/^#undef PPPD_VERSION$/#define PPPD_VERSION "2.5.3"/' \
+              -e 's/^#undef PPP_WITH_PLUGINS$/#define PPP_WITH_PLUGINS 1/' \
+              "$dst/pppdconf.h"
+            test -f "$dst/pppd.h"
+            test -f "$dst/pppdconf.h"
+          done
+          echo "Copied version-matched pppd headers into both C plugin source trees."
+
       - name: Install only required feeds
         working-directory: sdk
         run: |
