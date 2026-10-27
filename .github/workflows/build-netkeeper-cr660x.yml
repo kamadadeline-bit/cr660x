@@ -34,7 +34,7 @@ jobs:
           mkdir -p sdk
           tar --zstd -xf /tmp/openwrt-sdk.tar.zst -C sdk --strip-components=1
           test -x sdk/scripts/feeds
-          test -f sdk/package/network/services/ppp/Makefile
+          test -x sdk/staging_dir/toolchain-mipsel_24kc_gcc-13.3.0_musl/bin/mipsel-openwrt-linux-musl-gcc
           echo "SDK_ROOT=$GITHUB_WORKSPACE/sdk" >> "$GITHUB_ENV"
           echo "SDK downloaded and extracted. Firmware image will not be built."
 
@@ -50,29 +50,22 @@ jobs:
             cp -a "/tmp/feed-netkeeper/$p" sdk/package/feeds/netkeeper/
           done
 
-          # This CR660X LEDE build line uses PPP 2.5.3. Keep the package plugin
-          # ABI/path aligned with that pppd, rather than the SDK's older default.
+          # The SDK's staging headers are from its older PPP build. The NetKeeper
+          # protocol plugin only needs the pppd headers and exported hooks at build
+          # time; package runtime ABI path must match the current LEDE pppd (2.5.3).
+          # Replace the stale Makefile lookup with an explicit path/version.
           python3 - <<'PY'
           from pathlib import Path
           import re
           root = Path("sdk")
-          ppp = root / "package/network/services/ppp/Makefile"
-          s = ppp.read_text()
-          if "PKG_VERSION:=2.5.1" not in s:
-              raise SystemExit("Unexpected SDK PPP version; refusing a blind ABI patch")
-          s = s.replace("PKG_VERSION:=2.5.1", "PKG_VERSION:=2.5.3", 1)
-          s = s.replace("PKG_RELEASE:=1", "PKG_RELEASE:=2", 1)
-          s = re.sub(r"^PKG_HASH:=.*$", "PKG_HASH:=ddda28dec8aca99a403ab6070d94ffd2b17d63e9a4c5509158e99e148f572d4f", s, count=1, flags=re.M)
-          ppp.write_text(s)
-
-          # Fix upstream's obsolete PPP version variable in the two C packages.
           for rel in ("netkeeper/Makefile", "netkeeper-interception/Makefile"):
-              f = root / "package/feeds/netkeeper" / rel
-              src = f.read_text()
-              if "PKG_RELEASE_VERSION:=" not in src:
-                  raise SystemExit(f"Expected obsolete PPP version lookup in {f}")
-              f.write_text(src.replace("PKG_RELEASE_VERSION:=", "PKG_VERSION:="))
-          print("Configured PPP ABI version 2.5.3 for NetKeeper plugin build.")
+              p = root / "package/feeds/netkeeper" / rel
+              s = p.read_text()
+              updated, count = re.subn(r"^PPPD_VER\s*:=.*$", "PPPD_VER := 2.5.3", s, count=1, flags=re.M)
+              if count != 1:
+                  raise SystemExit(f"Could not patch PPP plugin path in {p}")
+              p.write_text(updated)
+          print("Configured plugin install path and version check for pppd 2.5.3.")
           PY
 
           echo "NetKeeper source commit: $(git -C /tmp/feed-netkeeper rev-parse HEAD)"
