@@ -91,6 +91,18 @@ jobs:
             test -f "$dst/pppd.h"
             test -f "$dst/pppdconf.h"
           done
+          # rp-pppoe from the packages feed also compiles a pppd plugin.
+          # Put matching headers in the SDK public target sysroot as well.
+          sdkinc="sdk/staging_dir/target-mipsel_24kc_musl/usr/include/pppd"
+          mkdir -p "$sdkinc"
+          cp /tmp/ppp-src/pppd/*.h "$sdkinc/"
+          cp /tmp/ppp-src/pppd/pppdconf.h.in "$sdkinc/pppdconf.h"
+          sed -i \
+            -e 's/^#undef PPPD_VERSION$/#define PPPD_VERSION "2.5.1"/' \
+            -e 's/^#undef PPP_WITH_PLUGINS$/#define PPP_WITH_PLUGINS 1/' \
+            "$sdkinc/pppdconf.h"
+          test -f "$sdkinc/pppd.h"
+          test -f "$sdkinc/pppdconf.h"
           echo "Copied upstream pppd 2.5.1 headers into both C plugin source trees."
           echo "PPP source commit: $(git -C /tmp/ppp-src rev-parse HEAD)"
 
