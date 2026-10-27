@@ -94,6 +94,41 @@ jobs:
           echo "Copied upstream pppd 2.5.1 headers into both C plugin source trees."
           echo "PPP source commit: $(git -C /tmp/ppp-src rev-parse HEAD)"
 
+      - name: Patch legacy PPP plugin declarations for PPP 2.5.1
+        run: |
+          set -eu
+          python3 - <<'PY'
+          from pathlib import Path
+          root = Path("sdk/package/feeds/netkeeper")
+          patched = 0
+          for package in ("netkeeper", "netkeeper-interception"):
+              for p in (root / package / "src").glob("*.c"):
+                  s = p.read_text()
+                  if '#include "pppd/pppd.h"' not in s:
+                      continue
+                  if '#include "pppd/upap.h"' not in s:
+                      s = s.replace(
+                          '#include "pppd/pppd.h"',
+                          '#include "pppd/pppd.h"\\n#include "pppd/upap.h"\\n#include "pppd/chap.h"',
+                          1
+                      )
+                  marker = '#include "pppd/chap.h"'
+                  declarations = (
+                      marker + "\\nextern char user[MAXNAMELEN];"
+                      + "\\nextern char passwd[MAXSECRETLEN];"
+                  )
+                  if "extern char user[MAXNAMELEN];" not in s:
+                      if marker not in s:
+                          raise SystemExit(f"Missing PPP hook include marker: {p}")
+                      s = s.replace(marker, declarations, 1)
+                  p.write_text(s)
+                  patched += 1
+                  print(f"Patched PPP 2.5.1 API declarations: {p}")
+          if patched < 2:
+              raise SystemExit(f"Expected to patch at least 2 C sources, patched {patched}")
+          print(f"Patched {patched} legacy C sources.")
+          PY
+
       - name: Install only required feeds
         working-directory: sdk
         run: |
