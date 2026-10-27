@@ -106,6 +106,13 @@ jobs:
         run: |
           timeout --signal=TERM --kill-after=30s 35m make download -j8 V=s
 
+      - name: Build and install target toolchain
+        working-directory: lede
+        run: |
+          # A clean package-only build does not yet have the musl runtime
+          # installed in staging_dir. Build the MT7621 cross toolchain first.
+          make toolchain/install -j2 V=s
+
       - name: Compile four NetKeeper packages
         working-directory: lede
         run: |
