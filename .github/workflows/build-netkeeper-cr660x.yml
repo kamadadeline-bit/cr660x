@@ -10,7 +10,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: netkeeper-cr660x-packages-${{ github.ref }}
+  group: netkeeper-cr660x-sdk-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
