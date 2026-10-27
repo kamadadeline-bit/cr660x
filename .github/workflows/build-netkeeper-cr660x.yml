@@ -1,4 +1,4 @@
-name: Build NetKeeper four packages for CR660X
+name: Build NetKeeper four packages for CR660X (SDK)
 
 on:
   workflow_dispatch:
@@ -16,105 +16,101 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-22.04
-    timeout-minutes: 150
+    timeout-minutes: 90
     steps:
       - name: Checkout build configuration
         uses: actions/checkout@v4
 
-      - name: Install LEDE build dependencies
+      - name: Install lightweight build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential clang flex bison g++ gawk \
-            gcc-multilib g++-multilib gettext git libncurses-dev libssl-dev \
-            python3-distutils rsync unzip zlib1g-dev file wget curl \
-            python3 python3-setuptools python3-pyelftools subversion \
-            swig time xsltproc qemu-utils libelf-dev ccache
+          sudo apt-get install -y build-essential git rsync unzip file wget curl zstd python3
 
-      - name: Fetch LEDE and NetKeeper sources
+      - name: Download prebuilt MT7621 SDK (no full firmware build)
+        run: |
+          set -eu
+          SDK_URL="https://downloads.openwrt.org/releases/24.10.8/targets/ramips/mt7621/openwrt-sdk-24.10.8-ramips-mt7621_gcc-13.3.0_musl.Linux-x86_64.tar.zst"
+          wget --progress=dot:giga -O /tmp/openwrt-sdk.tar.zst "$SDK_URL"
+          mkdir -p sdk
+          tar --zstd -xf /tmp/openwrt-sdk.tar.zst -C sdk --strip-components=1
+          test -x sdk/scripts/feeds
+          test -f sdk/package/network/services/ppp/Makefile
+          echo "SDK_ROOT=$GITHUB_WORKSPACE/sdk" >> "$GITHUB_ENV"
+          echo "SDK downloaded and extracted. Firmware image will not be built."
+
+      - name: Add the four CCnut NetKeeper packages
         env:
           GIT_TERMINAL_PROMPT: "0"
         run: |
-          git clone --depth 1 https://github.com/coolsnowwolf/lede.git lede
+          set -eu
           git clone --depth 1 https://github.com/CCnut/feed-netkeeper.git /tmp/feed-netkeeper
-
-          mkdir -p lede/package/feeds/netkeeper
+          mkdir -p sdk/package/feeds/netkeeper
           for p in netkeeper luci-proto-netkeeper netkeeper-interception luci-app-netkeeper-interception; do
             test -f "/tmp/feed-netkeeper/$p/Makefile"
-            cp -a "/tmp/feed-netkeeper/$p" lede/package/feeds/netkeeper/
+            cp -a "/tmp/feed-netkeeper/$p" sdk/package/feeds/netkeeper/
           done
 
-          # Upstream still looks for PKG_RELEASE_VERSION, which is no longer
-          # defined by the current LEDE PPP package. pppd plugin ABI directory
-          # must match PKG_VERSION from package/network/services/ppp/Makefile.
+          # This CR660X LEDE build line uses PPP 2.5.3. Keep the package plugin
+          # ABI/path aligned with that pppd, rather than the SDK's older default.
           python3 - <<'PY'
           from pathlib import Path
-          for name in ("netkeeper/Makefile", "netkeeper-interception/Makefile"):
-              p = Path("lede/package/feeds/netkeeper") / name
-              s = p.read_text()
-              old = "grep 'PKG_RELEASE_VERSION:='"
-              new = "grep 'PKG_VERSION:='"
-              if old not in s:
-                  raise SystemExit(f"Expected old PPP version lookup in {p}; refusing an unreviewed patch")
-              p.write_text(s.replace(old, new))
+          import re
+          root = Path("sdk")
+          ppp = root / "package/network/services/ppp/Makefile"
+          s = ppp.read_text()
+          if "PKG_VERSION:=2.5.1" not in s:
+              raise SystemExit("Unexpected SDK PPP version; refusing a blind ABI patch")
+          s = s.replace("PKG_VERSION:=2.5.1", "PKG_VERSION:=2.5.3", 1)
+          s = s.replace("PKG_RELEASE:=1", "PKG_RELEASE:=2", 1)
+          s = re.sub(r"^PKG_HASH:=.*$", "PKG_HASH:=ddda28dec8aca99a403ab6070d94ffd2b17d63e9a4c5509158e99e148f572d4f", s, count=1, flags=re.M)
+          ppp.write_text(s)
+
+          # Fix upstream's obsolete PPP version variable in the two C packages.
+          for rel in ("netkeeper/Makefile", "netkeeper-interception/Makefile"):
+              f = root / "package/feeds/netkeeper" / rel
+              src = f.read_text()
+              if "PKG_RELEASE_VERSION:=" not in src:
+                  raise SystemExit(f"Expected obsolete PPP version lookup in {f}")
+              f.write_text(src.replace("PKG_RELEASE_VERSION:=", "PKG_VERSION:="))
+          print("Configured PPP ABI version 2.5.3 for NetKeeper plugin build.")
           PY
 
-          echo "LEDE commit: $(git -C lede rev-parse HEAD)"
-          echo "NetKeeper feed commit: $(git -C /tmp/feed-netkeeper rev-parse HEAD)"
-          grep -n "PPPD_VER" lede/package/feeds/netkeeper/netkeeper/Makefile
-          grep -n "PPPD_VER" lede/package/feeds/netkeeper/netkeeper-interception/Makefile
+          echo "NetKeeper source commit: $(git -C /tmp/feed-netkeeper rev-parse HEAD)"
 
-      - name: Update and install OpenWrt feeds
-        working-directory: lede
+      - name: Install only required feeds
+        working-directory: sdk
         run: |
-          ./scripts/feeds update -a
-          ./scripts/feeds install -a
+          ./scripts/feeds update luci packages
+          ./scripts/feeds install -p luci luci-base luci-compat
+          ./scripts/feeds install -p packages rp-pppoe-server
 
-      - name: Configure CR660X package target
-        working-directory: lede
+      - name: Configure package-only build
+        working-directory: sdk
         run: |
-          cat > .config <<'EOF'
-          CONFIG_TARGET_ramips=y
-          CONFIG_TARGET_ramips_mt7621=y
-          CONFIG_TARGET_ramips_mt7621_DEVICE_xiaomi_mi-router-cr660x=y
-
-          CONFIG_PACKAGE_luci=y
+          cat >> .config <<'EOF'
           CONFIG_PACKAGE_luci-base=y
           CONFIG_PACKAGE_luci-compat=y
           CONFIG_PACKAGE_ppp=y
           CONFIG_PACKAGE_ppp-mod-pppoe=y
           CONFIG_PACKAGE_rp-pppoe-server=y
-
           CONFIG_PACKAGE_netkeeper=y
           CONFIG_PACKAGE_luci-proto-netkeeper=y
           CONFIG_PACKAGE_netkeeper-interception=y
           CONFIG_PACKAGE_luci-app-netkeeper-interception=y
           EOF
-
           make defconfig
+          grep -q '^CONFIG_TARGET_ramips=y$' .config
           grep -q '^CONFIG_TARGET_ramips_mt7621=y$' .config
-          grep -q '^CONFIG_PACKAGE_netkeeper=y$' .config
-          grep -q '^CONFIG_PACKAGE_luci-proto-netkeeper=y$' .config
-          grep -q '^CONFIG_PACKAGE_netkeeper-interception=y$' .config
-          grep -q '^CONFIG_PACKAGE_luci-app-netkeeper-interception=y$' .config
-          grep -q '^PKG_VERSION:=2.5.3$' package/network/services/ppp/Makefile
+          for p in netkeeper luci-proto-netkeeper netkeeper-interception luci-app-netkeeper-interception; do
+            grep -q "^CONFIG_PACKAGE_${p}=y$" .config || {
+              echo "Package not selected: $p"
+              exit 1
+            }
+          done
+          grep -E '^CONFIG_PACKAGE_(netkeeper|luci-proto-netkeeper|netkeeper-interception|luci-app-netkeeper-interception|ppp|ppp-mod-pppoe|rp-pppoe-server)=y$' .config
 
-          echo "Target and package selections:"
-          grep -E '^CONFIG_TARGET_ramips_mt7621=y$|^CONFIG_PACKAGE_(netkeeper|luci-proto-netkeeper|netkeeper-interception|luci-app-netkeeper-interception|ppp|ppp-mod-pppoe|rp-pppoe-server)=y$' .config
-
-      - name: Download build sources
-        working-directory: lede
-        run: |
-          timeout --signal=TERM --kill-after=30s 35m make download -j8 V=s
-
-      - name: Build and install target toolchain
-        working-directory: lede
-        run: |
-          # A clean package-only build does not yet have the musl runtime
-          # installed in staging_dir. Build the MT7621 cross toolchain first.
-          make toolchain/install -j2 V=s
-
-      - name: Compile four NetKeeper packages
-        working-directory: lede
+      - name: Compile only the four NetKeeper packages and dependencies
+        working-directory: sdk
         run: |
           make -j2 V=s \
             package/feeds/netkeeper/netkeeper/compile \
@@ -122,8 +118,8 @@ jobs:
             package/feeds/netkeeper/netkeeper-interception/compile \
             package/feeds/netkeeper/luci-app-netkeeper-interception/compile
 
-      - name: Verify and bundle CR660X IPKs
-        working-directory: lede
+      - name: Verify and bundle the four IPKs
+        working-directory: sdk
         run: |
           set -eu
           mkdir -p dist
@@ -139,42 +135,41 @@ jobs:
           done
 
           cat > dist/README-install.txt <<'EOF'
-          NetKeeper / 闪讯四插件 — CR660X (ramips/mt7621, mipsel_24kc)
+          CR660X / MT7621 NetKeeper (闪讯) — four plugin IPKs
 
-          Packages:
-            netkeeper                       闪讯 PPP 拨号核心插件
-            luci-proto-netkeeper            LuCI 闪讯拨号协议界面
-            netkeeper-interception          闪讯拦截服务
-            luci-app-netkeeper-interception 闪讯拦截服务 LuCI 界面
+          1. netkeeper
+             Core dialer, PPP plugin modules, and netifd protocol script.
+          2. luci-proto-netkeeper
+             LuCI interface protocol selector for WAN.
+          3. netkeeper-interception
+             Interception/authentication service.
+          4. luci-app-netkeeper-interception
+             Legacy LuCI management page (requires luci-compat).
 
-          Important:
-          - Built from CCnut/feed-netkeeper master and the current coolsnowwolf/lede source.
-          - The build patches the PPP plugin path lookup to use the current PPP PKG_VERSION.
-          - The two C plugin packages are tied to the PPP version used for this build; verify
-            the router's pppd version and installed firmware feed before installing.
-          - LuCI interception UI is legacy Lua and depends on luci-compat.
-          - netkeeper-interception is intended for a network/account you are authorized to use.
-          - Install dependencies first if opkg reports them missing; do not force-install
-            packages against a mismatched libc, PPP version, or kernel ABI.
-          
-          Suggested install command after copying all four IPKs to /tmp:
+          Target: ramips/mt7621, mipsel_24kc, musl.
+          PPP plugin ABI/path configured for pppd 2.5.3 to match the current
+          coolsnowwolf/lede CR660X build recipe. Do not force-install if the
+          router reports a different pppd version or incompatible libc.
+          The SDK is used only for package builds; no firmware image is built.
+
+          Copy the four .ipk files to /tmp on the router, then install dependencies
+          from the router's own matching feed before installing the local packages.
+          Example:
             opkg install /tmp/netkeeper_*.ipk /tmp/luci-proto-netkeeper_*.ipk /tmp/netkeeper-interception_*.ipk /tmp/luci-app-netkeeper-interception_*.ipk
 
-          After installation, the ordinary dialer is configured via Network -> Interfaces ->
-          WAN -> Protocol: NetKeeper/闪讯. Interception mode also requires enabling the
-          netkeeper-interception service and running the corresponding campus/ISP client
-          on an authorized PC.
+          For normal dialing: Network -> Interfaces -> WAN -> Protocol: NetKeeper/闪讯.
+          Interception mode requires enabling the service and using it only on a network
+          and account for which you have authorization.
           EOF
-
           (cd dist && sha256sum *.ipk > SHA256SUMS)
           tar -czf netkeeper-cr660x-ipks.tar.gz -C dist .
           file dist/*.ipk
           ls -lh dist
 
-      - name: Upload NetKeeper package artifacts
+      - name: Upload four IPKs
         uses: actions/upload-artifact@v4
         with:
-          name: netkeeper-cr660x-mipsel_24kc
-          path: lede/dist/
+          name: netkeeper-cr660x-mipsel_24kc-ipks
+          path: sdk/dist/
           if-no-files-found: error
           retention-days: 30
