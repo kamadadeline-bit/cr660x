@@ -194,6 +194,28 @@ jobs:
                   patched += 1
           if patched < 2:
               raise SystemExit(f"Expected to patch both legacy PPP plugins, patched {patched}")
+
+          # YYuan996's current source tree no longer contains
+          # hainan_sxplugin.c, while its Makefile still lists that obsolete
+          # target. Remove only this stale target; keep all other region plugins.
+          mk = root / "netkeeper/src/Makefile"
+          ms = mk.read_text()
+          all_line = next((line for line in ms.splitlines() if line.startswith("all:")), None)
+          if all_line is None:
+              raise SystemExit("NetKeeper src/Makefile has no all: target")
+          if "hainan_sxplugin" in all_line:
+              ms = ms.replace(all_line, all_line.replace(" hainan_sxplugin", ""), 1)
+          stale_rule = (
+              "hainan_sxplugin:\\n"
+              "\\t@$(CC) $(CFLAGS) hainan_sxplugin.c -shared -o ./builds/$@.so\\n"
+          )
+          if stale_rule not in ms:
+              raise SystemExit("Expected obsolete hainan_sxplugin target was not found; refusing to guess")
+          ms = ms.replace(stale_rule, "", 1)
+          if "hainan_sxplugin.c" in ms:
+              raise SystemExit("Stale hainan_sxplugin.c reference remains in NetKeeper Makefile")
+          mk.write_text(ms)
+          print("Removed stale Hainan target whose source file is absent; retained remaining NetKeeper plugins.")
           print(f"NetKeeper ABI and PPP 2.5.x compatibility fixes applied to {patched} C sources.")
           PY
 
