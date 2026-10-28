@@ -216,6 +216,28 @@ jobs:
               raise SystemExit("Stale hainan_sxplugin.c reference remains in NetKeeper Makefile")
           mk.write_text(ms)
           print("Removed stale Hainan target whose source file is absent; retained remaining NetKeeper plugins.")
+
+          # Fix the actual protocol-registration blocker: this LEDE tree builds
+          # ppp-mod-pppoe as pppoe.so, not rp-pppoe.so. The upstream script's
+          # existence check therefore refused to call add_protocol netkeeper,
+          # leaving NetKeeper absent from LuCI's WAN protocol choices.
+          proto = root / "netkeeper/files/netkeeper.sh"
+          ps = proto.read_text()
+          old_plugin = "plugin rp-pppoe.so"
+          new_plugin = "plugin pppoe.so"
+          old_check = "[ -f /usr/lib/pppd/*/rp-pppoe.so ] && add_protocol netkeeper"
+          new_check = "[ -f /usr/lib/pppd/*/pppoe.so ] && add_protocol netkeeper"
+          if ps.count(old_plugin) != 1:
+              raise SystemExit("Expected exactly one NetKeeper plugin rp-pppoe.so reference")
+          if ps.count(old_check) != 1:
+              raise SystemExit("Expected exactly one NetKeeper registration check for rp-pppoe.so")
+          ps = ps.replace(old_plugin, new_plugin, 1)
+          ps = ps.replace(old_check, new_check, 1)
+          if "rp-pppoe.so" in ps:
+              raise SystemExit("Stale rp-pppoe.so reference remains in NetKeeper protocol script")
+          proto.write_text(ps)
+          print("Fixed NetKeeper protocol registration and dialer plugin to use pppoe.so.")
+
           print(f"NetKeeper ABI and PPP 2.5.x compatibility fixes applied to {patched} C sources.")
           PY
 
@@ -316,6 +338,16 @@ jobs:
       - name: Verify package artifacts and configured defaults
         working-directory: lede
         run: |
+          # Confirm the protocol backend, LuCI frontend, and PPP plugin all land
+          # in the root filesystem, and that registration matches pppoe.so.
+          rootfs="build_dir/target-mipsel_24kc_musl/root.orig-ramips"
+          test -f "$rootfs/lib/netifd/proto/netkeeper.sh"
+          grep -Fq "plugin pppoe.so" "$rootfs/lib/netifd/proto/netkeeper.sh"
+          grep -Fq "[ -f /usr/lib/pppd/*/pppoe.so ] && add_protocol netkeeper" "$rootfs/lib/netifd/proto/netkeeper.sh"
+          test -f "$rootfs/www/luci-static/resources/protocol/netkeeper.js"
+          test -f "$rootfs/usr/lib/pppd/2.5.3/netkeeper-interception-c.so"
+          echo "Verified NetKeeper netifd registration, LuCI protocol frontend and PPP interception plugin."
+
           grep -Fq "option server_mode 'TPROXY'" files/etc/config/ua3f
           grep -Fq "option port '1080'" files/etc/config/ua3f
           grep -Fq "option rewrite_mode 'GLOBAL'" files/etc/config/ua3f
