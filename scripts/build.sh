@@ -104,25 +104,42 @@ luci_admin_mk.write_text(text.replace(old_dep, new_dep), encoding="utf-8")
 if "luci-app-oui" in luci_admin_mk.read_text(encoding="utf-8"):
     raise SystemExit("ERROR: optional OUI dependency was not removed.")
 
-# The Coolsnowwolf SQM package still carries legacy iptables-only dependencies.
-# Campus SY uses firewall4/nftables, so switch SQM to the upstream nftables
-# dependency set while retaining tc, CAKE and IFB runtime support.
+# Normalize SQM dependencies for firewall4/nftables across LEDE revisions.
+# Feed revisions change whitespace, line wrapping and dependency order; do not
+# fail merely because the old iptables stanza is formatted differently.
 sqm_text = sqm_mk.read_text(encoding="utf-8")
-old_sqm_dep = (
-    "DEPENDS:=+tc +kmod-sched-core +kmod-ifb +iptables \\n"
-    "\t+iptables-mod-ipopt +iptables-mod-conntrack-extra \\n"
-    "\t+kmod-sched-cake"
-)
-new_sqm_dep = (
-    "DEPENDS:=+tc +ip-full +kmod-sched-core +kmod-ifb +nftables-json \\n"
-    "\t+kmod-sched-cake"
-)
-if sqm_text.count(old_sqm_dep) != 1:
-    raise SystemExit("ERROR: expected legacy iptables dependency in sqm-scripts was not found exactly once.")
-sqm_mk.write_text(sqm_text.replace(old_sqm_dep, new_sqm_dep), encoding="utf-8")
-if "iptables-mod-conntrack-extra" in sqm_mk.read_text(encoding="utf-8"):
-    raise SystemExit("ERROR: SQM legacy iptables dependency was not removed.")
-print("Patched SQM dependencies for firewall4/nftables; kept tc, CAKE and IFB.")
+pkg_start = sqm_text.find("define Package/sqm-scripts")
+if pkg_start < 0:
+    raise SystemExit("ERROR: sqm-scripts package definition was not found.")
+pkg_end = sqm_text.find("endef", pkg_start)
+if pkg_end < 0:
+    raise SystemExit("ERROR: sqm-scripts package definition is incomplete.")
+pkg_block = sqm_text[pkg_start:pkg_end]
+pkg_lines = pkg_block.splitlines()
+dep_start = next((i for i, line in enumerate(pkg_lines) if line.lstrip().startswith("DEPENDS:=")), None)
+if dep_start is None:
+    raise SystemExit("ERROR: sqm-scripts DEPENDS field was not found.")
+dep_end = dep_start
+while dep_end + 1 < len(pkg_lines) and pkg_lines[dep_end].rstrip().endswith("\\"):
+    dep_end += 1
+dep_value = " ".join(line.strip().rstrip("\\").strip() for line in pkg_lines[dep_start:dep_end + 1])
+dep_value = dep_value.split("DEPENDS:=", 1)[1].strip()
+dep_tokens = dep_value.split()
+legacy = [token for token in dep_tokens if token == "+iptables" or token.startswith("+iptables-mod-")]
+dep_tokens = [token for token in dep_tokens if token != "+iptables" and not token.startswith("+iptables-mod-")]
+if "+nftables-json" not in dep_tokens:
+    dep_tokens.append("+nftables-json")
+pkg_lines[dep_start:dep_end + 1] = ["\tDEPENDS:=" + " ".join(dep_tokens)]
+new_block = "\n".join(pkg_lines)
+sqm_text = sqm_text[:pkg_start] + new_block + sqm_text[pkg_end:]
+sqm_mk.write_text(sqm_text, encoding="utf-8")
+verify = sqm_mk.read_text(encoding="utf-8")
+verify_start = verify.find("define Package/sqm-scripts")
+verify_end = verify.find("endef", verify_start)
+verify_pkg = verify[verify_start:verify_end]
+if "+iptables" in verify_pkg or "+nftables-json" not in verify_pkg:
+    raise SystemExit("ERROR: SQM firewall4 dependency normalization did not pass verification.")
+print("Normalized SQM dependencies for firewall4/nftables; removed legacy iptables tokens:", legacy)
 
 # The standalone SSR-Plus feed package is not part of Campus SY; removing its
 # feed link also removes its orphan Kconfig toggles and their hidden dependencies.
