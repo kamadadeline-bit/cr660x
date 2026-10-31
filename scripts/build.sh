@@ -3,6 +3,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BUILD_DIR="$ROOT_DIR/work/openwrt"
+DL_CACHE_DIR="$ROOT_DIR/work/dl-cache"
 LEDE_REPO="${LEDE_REPO:-https://github.com/coolsnowwolf/lede.git}"
 LEDE_REF="${LEDE_REF:-master}"
 UA3F_REF="${UA3F_REF:-v3.7.0}"
@@ -19,6 +20,13 @@ mkdir -p "$ROOT_DIR/work"
 rm -rf "$BUILD_DIR" "$ROOT_DIR/work/MentoHUST-src" "$ROOT_DIR/work/Argon-src" \
   "$ROOT_DIR/work/ESurfing-src" "$ROOT_DIR/work/Dogcom-src" "$ROOT_DIR/work/Dogcom-LuCI-src" "$ROOT_DIR/work/UU-src"
 git clone --depth 1 --branch "$LEDE_REF" "$LEDE_REPO" "$BUILD_DIR"
+# Reuse successful source downloads across reruns; never discard this cache when
+# recreating the OpenWrt checkout. Persist partial progress even on failure.
+mkdir -p "$BUILD_DIR/dl"
+if [[ -d "$DL_CACHE_DIR" ]]; then
+  rsync -a "$DL_CACHE_DIR/" "$BUILD_DIR/dl/"
+fi
+trap 'if [[ -d "$BUILD_DIR/dl" ]]; then mkdir -p "$DL_CACHE_DIR"; rsync -a "$BUILD_DIR/dl/" "$DL_CACHE_DIR/"; fi' EXIT
 cd "$BUILD_DIR"
 
 # Shared package choices; separate device profile holds target/flash/driver data.
@@ -463,7 +471,15 @@ chmod 0755 files/etc/init.d/wifi-bridge-guard files/usr/sbin/wifi-bridge-guard
 
 echo 'Disk before downloads:'
 df -h .
-make download -j"$(nproc)" V=s || make download -j1 V=s
+# Avoid saturating upstream mirrors. Retry with progressively lower parallelism;
+# completed downloads remain in dl/ and are reused by the next attempt/run.
+if ! make download -j4 V=s; then
+  echo "WARN: parallel source download failed; retrying with 2 workers."
+  if ! make download -j2 V=s; then
+    echo "WARN: reduced-parallelism download failed; retrying serially."
+    make download -j1 V=s
+  fi
+fi
 
 echo 'Disk before compilation:'
 df -h .
