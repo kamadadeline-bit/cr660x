@@ -1,21 +1,39 @@
-# Xiaomi Mi Router CR6608 firmware (LEDE)
+# 校园网 SY — Xiaomi CR660x / CR6608 独立设备构建
 
-This repository prepares a CR6608-targeted firmware build from [coolsnowwolf/lede](https://github.com/coolsnowwolf/lede).
+本仓库独立适配 CR660x 系列设备，公共功能包和构建修复沿用 [NX30 Pro 公共方案](https://github.com/kamadadeline-bit/nx30pro)，但设备配置、DTS、分区、无线驱动和镜像规则保持独立。
 
-## Optimization plan and requested defaults
+## 设备 profile
 
-1. Add an explicit `xiaomi_mi-router-cr6608` target profile and a CR6608 DTS compatible/model identity, reusing the LEDE CR660x series image/partition recipe. This is a source-level target adjustment; verify the exact unit's partition table and recovery method before flashing.
-2. Include UA3F, OpenClash LuCI, Turbo ACC, the requested UA3F packages `kmod-nft-queue`, `kmod-nft-tproxy`, `kmod-sched-bpf`, `libubox-lua`, and the four NetKeeper/闪讯 packages (`netkeeper`, `luci-proto-netkeeper`, `netkeeper-interception`, `luci-app-netkeeper-interception`). The build verifies that these packages appear in the final firmware manifest, not just that package files were emitted.
-3. Set UA3F enabled, TPROXY port 1080, GLOBAL rewrite, the specified QQ Browser User-Agent, TTL rewrite to 64, and TCP timestamp deletion. Keep TCP reordering/injection, fixed IP ID, initial TCP window, QUIC blocking, and eBPF L3 offload disabled as shown in the screenshots.
-4. Set Turbo ACC software/hardware flow offload and Shortcut-FE disabled, FullCone NAT disabled, and BBR disabled so the Turbo ACC init script selects CUBIC.
-5. Review the generated package artifacts and exact CR6608 image name before considering installation.
+- Target：`ramips/mt7621`
+- 上游 profile：`xiaomi_mi-router-cr660x`
+- DTS compatible：`xiaomi,mi-router-cr660x`
+- NAND：128 MiB；上游 image recipe 声明 `IMAGE_SIZE := 128512k`
+- Kernel 分区：4 MiB；上游 factory recipe 使用 `append-kernel | pad-to 4 MiB | append-ubi`
+- 端口与 MAC：沿用上游 CR660x `02_network` board script，不覆盖成 NX30 Pro 的 DSA/Filogic 网络配置
+- 无线和设备内核包：由 CR660x 上游 profile 负责
 
-## Network and authentication notes
+**设备边界：** 本次编译目标固定为上游 CR660x profile。CR6606/CR6608/CR6609 不能只凭系列名称假定所有硬件修订完全相同；刷机前核对机身型号、`ubus call system board`、`/tmp/sysinfo/board_name` 和 `/proc/mtd`。
 
-- The CR6608 board identifier is explicitly mapped to the CR660x switch-port and MAC setup in `target/linux/ramips/mt7621/base-files/etc/board.d/02_network`. This addresses the mismatch where Wi-Fi could work while Ethernet clients were not put on the expected LAN bridge; it must still be confirmed on the flashed device.
-- The NetKeeper packages are for NetKeeper/闪讯 PPPoE dialing and interception. They are **not** an H3C iNode authenticator and do not add iNode's vendor-specific 802.1X/authentication backend.
-- The original `gwifi_clean.tar.gz` campus login plugin is not integrated. Only an incomplete placeholder had been committed earlier, and it has been removed rather than shipping a broken LuCI page. Upload the original archive again before integrating its scripts and web pages. OpenClash LuCI is included, but the Clash/Mihomo core and a user's proxy config are not bundled by the build workflow.
+## 公共校园网包白名单
 
-## Flashing safety
+沿用 NX30 Pro 的公共包配置：UA3F（nftables TPROXY 与内核依赖）、MentoHUST、Dogcom、ESurfingClient C、NetKeeper/闪讯 PPP 环境、WPA-EAP（wpad-openssl）、UU 游戏加速器、PassWall（nftables）、SQM、Wi-Fi relay 组件及 Argon 中文主题。
 
-The CR6608 profile reuses the CR660x series image/partition recipe. This does not independently establish that every hardware revision or bootloader accepts a given image. Before flashing, compare the actual router revision and `/proc/mtd` layout, choose the correct factory or sysupgrade format for your current installation path, and confirm a recovery route. Do not flash while the image is still unverified.
+不加入 OpenClash、SSR-Plus、Turbo ACC、MiniEAP、Docker 等当前公共白名单以外的组件。NetKeeper/闪讯环境不等于 H3C iNode 认证后端；具体校园网认证仍需按学校环境验证。
+
+## 构建产物与强制检查
+
+每次成功构建必须同时有：
+
+- `openwrt-ramips-mt7621-xiaomi_mi-router-cr660x-squashfs-factory.bin`
+- `openwrt-ramips-mt7621-xiaomi_mi-router-cr660x-squashfs-sysupgrade.bin`
+- CR660x `.manifest`
+- `BUILD-INFO.txt`、`build.config`、`SHA256SUMS`
+
+构建脚本检查上游 factory 生成规则、两种镜像是否分别生成、sysupgrade tar 的 kernel/root 成员、4 MiB kernel 分区、factory 镜像大小、最终 manifest 必需包及 SHA-256 自检。factory 缺失或任何检查失败时，Actions 必须失败且不发布固件。
+
+## 刷机安全
+
+- factory 与 sysupgrade 用途不同，不能互相改名代替。
+- factory 只用于与实际硬件修订、引导程序及分区布局匹配的首次刷机路径；sysupgrade 仅用于已运行兼容 OpenWrt/LEDE 的系统内升级。
+- 不要强制绕过设备兼容性检查。
+- 首次测试前备份原厂分区和配置，并确认设备专用恢复途径。
