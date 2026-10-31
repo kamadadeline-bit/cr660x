@@ -40,7 +40,7 @@ for radio in $(uci -q show wireless 2>/dev/null | sed -n 's/^wireless\.\([^=]*\)
 done
 uci -q commit wireless
 
-# This shared password is only an initial deployment value. Change it after first login.
+# No wireless key or root password is changed by this first-boot script.
 if [ -f /etc/config/luci ]; then
     uci -q set luci.main.mediaurlbase='/luci-static/argon'
     uci -q set luci.main.lang='zh_cn'
