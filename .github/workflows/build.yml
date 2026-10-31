@@ -25,6 +25,11 @@ on:
 permissions:
   contents: read
 
+# Only one full firmware build may run for this repository at a time.
+concurrency:
+  group: cr660x-firmware-build
+  cancel-in-progress: true
+
 defaults:
   run:
     shell: bash
@@ -55,6 +60,13 @@ jobs:
             python3-pyelftools python3-yaml rsync swig unzip zlib1g-dev file wget curl \
             device-tree-compiler ccache time xsltproc libxml-parser-perl libusb-1.0-0-dev
           df -h
+      - name: Restore OpenWrt source download cache
+        uses: actions/cache@v4
+        with:
+          path: work/dl-cache
+          key: openwrt-dl-${{ runner.os }}-${{ hashFiles('configs/**', 'scripts/build.sh') }}-${{ github.event.inputs.lede_ref || 'master' }}
+          restore-keys: |
+            openwrt-dl-${{ runner.os }}-
       - name: Install Zig for UU architecture shims
         run: |
           set -euxo pipefail
