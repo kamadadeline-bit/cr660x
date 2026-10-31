@@ -434,8 +434,15 @@ if grep -qx 'CONFIG_PACKAGE_luci-app-passwall_INCLUDE_Shadowsocks_Rust_Client=y'
   exit 1
 fi
 
-# Keep device defaults and board wiring in the CR660x-specific profile.
-mkdir -p files
+# Apply shared first-boot defaults and STA recovery service; no NX30-specific
+# partition, DTS, or wireless-driver files are copied into this device profile.
+mkdir -p files/etc/uci-defaults files/etc/init.d files/etc/config files/usr/sbin
+cp "$ROOT_DIR/files/etc/uci-defaults/98-campus-sy-cr660x" files/etc/uci-defaults/
+cp "$ROOT_DIR/files/etc/init.d/wifi-bridge-guard" files/etc/init.d/
+cp "$ROOT_DIR/files/etc/config/wifi-bridge-guard" files/etc/config/
+cp "$ROOT_DIR/files/usr/sbin/wifi-bridge-guard" files/usr/sbin/
+chmod 0755 files/etc/uci-defaults/98-campus-sy-cr660x
+chmod 0755 files/etc/init.d/wifi-bridge-guard files/usr/sbin/wifi-bridge-guard
 
 echo 'Disk before downloads:'
 df -h .
