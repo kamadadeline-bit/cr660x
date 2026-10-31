@@ -130,7 +130,7 @@ dep_tokens = [token for token in dep_tokens if token != "+iptables" and not toke
 if "+nftables-json" not in dep_tokens:
     dep_tokens.append("+nftables-json")
 pkg_lines[dep_start:dep_end + 1] = ["\tDEPENDS:=" + " ".join(dep_tokens)]
-new_block = "\n".join(pkg_lines)
+new_block = "\n".join(pkg_lines) + "\n"
 sqm_text = sqm_text[:pkg_start] + new_block + sqm_text[pkg_end:]
 sqm_mk.write_text(sqm_text, encoding="utf-8")
 verify = sqm_mk.read_text(encoding="utf-8")
