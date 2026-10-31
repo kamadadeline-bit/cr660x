@@ -16,7 +16,7 @@
 
 ## 公共校园网包白名单
 
-沿用 NX30 Pro 的公共包配置：UA3F（nftables TPROXY 与内核依赖）、MentoHUST、Dogcom、ESurfingClient C、NetKeeper/闪讯 PPP 环境、WPA-EAP（wpad-openssl）、UU 游戏加速器、PassWall（nftables）、SQM、Wi-Fi relay 组件及 Argon 中文主题。
+沿用 NX30 Pro 的公共包配置：UA3F（nftables TPROXY 与内核依赖）、MentoHUST、Dogcom、ESurfingClient C、NetKeeper/闪讯 PPP 环境、WPA-EAP（wpad-openssl）、UU 游戏加速器、PassWall（nftables）、SQM、Wi-Fi relay 组件、STA 掉线恢复服务及 Argon 中文主题。
 
 不加入 OpenClash、SSR-Plus、Turbo ACC、MiniEAP、Docker 等当前公共白名单以外的组件。NetKeeper/闪讯环境不等于 H3C iNode 认证后端；具体校园网认证仍需按学校环境验证。
 
