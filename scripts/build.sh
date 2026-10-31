@@ -109,12 +109,12 @@ if "luci-app-oui" in luci_admin_mk.read_text(encoding="utf-8"):
 # dependency set while retaining tc, CAKE and IFB runtime support.
 sqm_text = sqm_mk.read_text(encoding="utf-8")
 old_sqm_dep = (
-    "DEPENDS:=+tc +kmod-sched-core +kmod-ifb +iptables \\\n"
-    "\t+iptables-mod-ipopt +iptables-mod-conntrack-extra \\\n"
+    "DEPENDS:=+tc +kmod-sched-core +kmod-ifb +iptables \\n"
+    "\t+iptables-mod-ipopt +iptables-mod-conntrack-extra \\n"
     "\t+kmod-sched-cake"
 )
 new_sqm_dep = (
-    "DEPENDS:=+tc +ip-full +kmod-sched-core +kmod-ifb +nftables-json \\\n"
+    "DEPENDS:=+tc +ip-full +kmod-sched-core +kmod-ifb +nftables-json \\n"
     "\t+kmod-sched-cake"
 )
 if sqm_text.count(old_sqm_dep) != 1:
@@ -451,18 +451,18 @@ SYSUPGRADE_IMAGE="$(find "$OUT" -maxdepth 1 -type f -name "$SYSUPGRADE_GLOB" -pr
 FACTORY_IMAGE="$(find "$OUT" -maxdepth 1 -type f -name "$FACTORY_GLOB" -print -quit)"
 if [[ -z "$SYSUPGRADE_IMAGE" ]]; then
   echo "ERROR: CR660x sysupgrade image was not generated." >&2
-  find "$OUT" -maxdepth 1 -type f -printf '%f\\n' | sort || true
+  find "$OUT" -maxdepth 1 -type f -printf '%f\n' | sort || true
   exit 1
 fi
 if [[ -z "$FACTORY_IMAGE" ]]; then
   echo "ERROR: CR660x factory.bin was not generated; refusing to publish this build." >&2
-  find "$OUT" -maxdepth 1 -type f -printf '%f\\n' | sort || true
+  find "$OUT" -maxdepth 1 -type f -printf '%f\n' | sort || true
   exit 1
 fi
 
 # Verify the source image recipe rather than merely renaming another artifact.
 IMAGE_MK="$BUILD_DIR/target/linux/ramips/image/mt7621.mk"
-DEVICE_BLOCK="$(sed -n '/^define Device\\/xiaomi_mi-router-cr660x$/,/^endef$/p' "$IMAGE_MK")"
+DEVICE_BLOCK="$(sed -n '/^define Device\/xiaomi_mi-router-cr660x$/,/^endef$/p' "$IMAGE_MK")"
 grep -q 'IMAGE_SIZE := 128512k' <<<"$DEVICE_BLOCK" || { echo "ERROR: unexpected CR660x IMAGE_SIZE." >&2; exit 1; }
 grep -q 'KERNEL_SIZE := 4096k' <<<"$DEVICE_BLOCK" || { echo "ERROR: unexpected CR660x kernel partition size." >&2; exit 1; }
 grep -q 'IMAGES += factory.bin' <<<"$DEVICE_BLOCK" || { echo "ERROR: upstream CR660x factory declaration missing." >&2; exit 1; }
@@ -529,7 +529,7 @@ cp .config "$OUT/build.config"
   echo "CR660X_FACTORY_MAX_BYTES=$MAX_FACTORY_BYTES"
 } > "$OUT/BUILD-INFO.txt"
 
-find "$OUT" -maxdepth 1 -type f \\( -name '*.bin' -o -name '*.itb' -o -name '*.img' -o -name '*.tar' \\) -print0 | xargs -0 -r sha256sum > "$OUT/SHA256SUMS"
+find "$OUT" -maxdepth 1 -type f \( -name '*.bin' -o -name '*.itb' -o -name '*.img' -o -name '*.tar' \) -print0 | xargs -0 -r sha256sum > "$OUT/SHA256SUMS"
 test -s "$OUT/SHA256SUMS" || { echo 'ERROR: no firmware images found for checksumming.' >&2; exit 1; }
 (cd "$OUT" && sha256sum -c SHA256SUMS)
 
